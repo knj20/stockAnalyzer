@@ -18,4 +18,6 @@ When a request arrives at our API, we still need a thread from a thread pool. So
 This means that we can handle a lot more requests, we are not blocking our threads, and we are not forcing threads to wait (and do nothing) for three seconds until the database finishes its work. All of these leads to improved scalability of our application.
 ![image](https://user-images.githubusercontent.com/77861210/204892794-76744d39-8146-41ad-afec-6dffaee4749b.png)
 
+#2-await allows you to go back to the original thread in continuation and validates the success of the operation *.*
+
 
