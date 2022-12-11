@@ -21,5 +21,6 @@ This means that we can handle a lot more requests, we are not blocking our threa
 #2-await allows you to go back to the original thread in continuation and validates the success of the operation *.*
 #3- task is a single async operation allows : execute on other thread - retrurn result - producecontinuation - return exceptions 
     -> Task.Run : queue on the thread pool for execution
+#4- ContinueWith : continuation executes on diff thread 
 
 
