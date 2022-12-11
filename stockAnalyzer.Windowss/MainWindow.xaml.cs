@@ -4,6 +4,8 @@ using stockAnalyzer.Core.Domain.Entities;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -25,14 +27,53 @@ namespace stockAnalyzer.Windowss
             InitializeComponent();
         }
 
-        private async void Search_Click(object sender, RoutedEventArgs e)
+        private void Search_Click(object sender, RoutedEventArgs e)
         {
             BeforeLoadingStockData();
 
-            await GetStocks();
+            var loadLinesTask = Task.Run(() =>
+            {
+                var lines = File.ReadAllLines("C:\\Learning\\DotnetCore\\stockAnalyzer\\stockAnalyzer.Windowss\\StockPrices_Small.csv");
+
+                return lines;
+            });
+
+             var processTask = loadLinesTask.ContinueWith((completedTask) =>
+            {
+                var lines = completedTask.Result;
+
+                var data = new List<Price>();
+
+                foreach (var line in lines.Skip(1))
+                {
+                    var price = Price.FromCSV(line);
+                    data.Add(price);
+                }
+
+                Dispatcher.Invoke(() =>
+                {
+                    Stocks.ItemsSource = data.Where(p => p.Identifier == StockIdentifier.Text);
+                });
+                
+            });
+
+            processTask.ContinueWith((_) =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    AfterLoadingStockData();
+                });
+                
+            });
 
 
-            AfterLoadingStockData();
+
+
+           // await GetStocks();
+
+
+
+            
 
             /* exemple about diffrence between Task.Result and await 
                 Debug.WriteLine($"Task started");
@@ -62,7 +103,7 @@ namespace stockAnalyzer.Windowss
                 {
                     Notes.Text = ex.Message;
                 }
-            }
+            } 
 
             /* var client = new WebClient();
 
