@@ -27,18 +27,40 @@ namespace stockAnalyzer.Windowss
             InitializeComponent();
         }
 
+        CancellationTokenSource? cancellationTokenSource;
         private void Search_Click(object sender, RoutedEventArgs e)
         {
-            BeforeLoadingStockData();
-
-            var loadLinesTask = Task.Run(() =>
+            if (cancellationTokenSource is not null)
             {
-                var lines = File.ReadAllLines("C:\\Learning\\DotnetCore\\stockAnalyzer\\stockAnalyzer.Windowss\\StockPrices_Small.csv");
+                cancellationTokenSource.Cancel();
+                cancellationTokenSource.Dispose();
+                cancellationTokenSource = null;
 
-                return lines;
+                Search.Content = "Search";
+                return;
+            }
+
+            cancellationTokenSource = new();
+            cancellationTokenSource.Token.Register(() =>
+            {
+                Notes.Text = "Cancellation requested";
             });
 
-             var processTask = loadLinesTask.ContinueWith((completedTask) =>
+            Search.Content = "Cancel";
+
+            BeforeLoadingStockData();
+
+            var loadLinesTask = SearchForStocks(cancellationTokenSource.Token);
+
+            loadLinesTask.ContinueWith(t =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    Notes.Text = t.Exception?.InnerException?.Message;
+                });
+            }, TaskContinuationOptions.OnlyOnFaulted);
+
+            var processTask = loadLinesTask.ContinueWith((completedTask) =>
             {
                 var lines = completedTask.Result;
 
@@ -53,27 +75,30 @@ namespace stockAnalyzer.Windowss
                 Dispatcher.Invoke(() =>
                 {
                     Stocks.ItemsSource = data.Where(p => p.Identifier == StockIdentifier.Text);
+
                 });
-                
-            });
+
+            }, TaskContinuationOptions.OnlyOnRanToCompletion);
 
             processTask.ContinueWith((_) =>
             {
                 Dispatcher.Invoke(() =>
                 {
                     AfterLoadingStockData();
+                    cancellationTokenSource.Dispose();
+                    cancellationTokenSource = null;
                 });
-                
+
             });
 
 
 
 
-           // await GetStocks();
+            // await GetStocks();
 
 
 
-            
+
 
             /* exemple about diffrence between Task.Result and await 
                 Debug.WriteLine($"Task started");
@@ -88,13 +113,35 @@ namespace stockAnalyzer.Windowss
             **/
         }
 
-        private async Task GetStocks()
+        private Task<List<string>> SearchForStocks(CancellationToken cancellationToken)
+        {
+            return Task.Run(async() =>
+            {
+                // var lines = File.ReadAllLines("C:\\Learning\\DotnetCore\\stockAnalyzer\\stockAnalyzer.Windowss\\StockPrices_Small.csv");
+                using var stream = new StreamReader(File.OpenRead("C:\\Learning\\DotnetCore\\stockAnalyzer\\stockAnalyzer.Windowss\\StockPrices_Small.csv"));
+
+                var lines = new List<string>();
+
+                while(await stream.ReadLineAsync() is string line)
+                {
+                    if(cancellationToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    lines.Add(line);
+                }
+
+                return lines;
+            }, cancellationToken);
+        }
+
+        private async Task GetStocks(CancellationToken cancellationToken)
         {
             using (var client = new HttpClient())
             {
                 try
                 {
-                    var respsonse = await client.GetAsync($"{API_URL}/{StockIdentifier.Text}");
+                    var respsonse = await client.GetAsync($"{API_URL}/{StockIdentifier.Text}", cancellationToken);
                     var content = await respsonse.Content.ReadAsStringAsync();
                     var data = JsonConvert.DeserializeObject<IEnumerable<Price>>(content);
                     Stocks.ItemsSource = data;
