@@ -22,5 +22,6 @@ This means that we can handle a lot more requests, we are not blocking our threa
 #3- task is a single async operation allows : execute on other thread - retrurn result - producecontinuation - return exceptions 
     -> Task.Run : queue on the thread pool for execution
 #4- ContinueWith : continuation executes on diff thread 
+#5- CancellationToken keep track of a cancellation - task will not start if token marked as cancelled
 
 
