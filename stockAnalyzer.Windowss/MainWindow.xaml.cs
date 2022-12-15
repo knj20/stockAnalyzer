@@ -1,8 +1,12 @@
 ﻿
 using Newtonsoft.Json;
 using stockAnalyzer.Core.Domain.Entities;
+using stockAnalyzer.Core.Services;
+using StockAnalyzer.Core.Services;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -28,7 +32,54 @@ namespace stockAnalyzer.Windowss
         }
 
         CancellationTokenSource? cancellationTokenSource;
-        private void Search_Click(object sender, RoutedEventArgs e)
+        private async void Search_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                BeforeLoadingStockData();
+
+                var identifiers = StockIdentifier.Text.Split(',', ' ');
+                var data = new ObservableCollection<Price>();
+                Stocks.ItemsSource = data;
+
+                var service = new DiskStreamStockService();
+                var prices = service.GetAllPrices();
+
+                await foreach(var price in prices.WithCancellation(CancellationToken.None))
+                {
+                    if(identifiers.Contains(price.Identifier))
+                    {
+                        data.Add(price);
+                    }
+                }
+                // var data = await GetStocks(StockIdentifier.Text);
+                // Stocks.ItemsSource = data;
+
+            }
+            catch(Exception ex)
+            {
+                Notes.Text = ex.Message;
+            }
+            finally
+            {
+                AfterLoadingStockData();
+                // cancellationTokenSource.Dispose();
+                cancellationTokenSource = null;
+            }
+        }
+
+        private async Task<IEnumerable<Price>> GetStocks(string identifier)
+        {
+            var service = new StockService();
+            var data = await service.GetStockPricesFor(identifier, CancellationToken.None);
+
+            Notes.Text = "Stocks loaded!";
+
+            return data.Take(5);
+        }
+
+
+        private async Task SearchUsingTaskParallelLib()
         {
             if (cancellationTokenSource is not null)
             {
@@ -47,38 +98,126 @@ namespace stockAnalyzer.Windowss
             });
 
             Search.Content = "Cancel";
-
             BeforeLoadingStockData();
 
-            var loadLinesTask = SearchForStocks(cancellationTokenSource.Token);
-
-            loadLinesTask.ContinueWith(t =>
+            try
             {
-                Dispatcher.Invoke(() =>
+                var identifiers = StockIdentifier.Text.Split(',', ' ');
+
+                var service = new StockService();
+
+                var loadingTasks = new List<Task<IEnumerable<Price>>>();
+
+                var stocks = new ConcurrentBag<Price>();
+
+                foreach (var identifier in identifiers)
                 {
-                    Notes.Text = t.Exception?.InnerException?.Message;
-                });
-            }, TaskContinuationOptions.OnlyOnFaulted);
+                    var loadTask = service.GetStockPricesFor(identifier, cancellationTokenSource.Token);
 
-            var processTask = loadLinesTask.ContinueWith((completedTask) =>
-            {
-                var lines = completedTask.Result;
+                    loadTask = loadTask.ContinueWith(t =>
+                    {
+                        var firstStocks = t.Result.Take(5);
 
-                var data = new List<Price>();
+                        foreach (var stock in firstStocks)
+                        {
+                            stocks.Add(stock);
+                        }
 
-                foreach (var line in lines.Skip(1))
-                {
-                    var price = Price.FromCSV(line);
-                    data.Add(price);
+                        Dispatcher.Invoke(() =>
+                        {
+                            Stocks.ItemsSource = stocks.ToArray();
+                        });
+
+                        return firstStocks;
+                    }, cancellationTokenSource.Token);
+
+                    loadingTasks.Add(loadTask);
+                    var allStocks = await Task.WhenAll(loadingTasks);
                 }
 
-                Dispatcher.Invoke(() =>
-                {
-                    Stocks.ItemsSource = data.Where(p => p.Identifier == StockIdentifier.Text);
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+            finally
+            {
+                AfterLoadingStockData();
+                // cancellationTokenSource.Dispose();
+                cancellationTokenSource = null;
+            }
 
-                });
+            /*
+            try {
 
-            }, TaskContinuationOptions.OnlyOnRanToCompletion);
+            var identifiers = StockIdentifier.Text.Split(',', ' ');
+
+            var service = new MockStockService();
+
+            var loadingTasks = new List<Task<IEnumerable<Price>>>();
+
+
+            foreach(var identifier in identifiers)
+            {
+                var loadTask = service.GetStockPricesFor(identifier, cancellationTokenSource.Token);
+                loadingTasks.Add(loadTask);
+            }
+
+            var timeout = Task.Delay(120000);
+            var allStocks =  Task.WhenAll(loadingTasks);
+
+            var completedTask = await Task.WhenAny(timeout, allStocks);
+
+            if(completedTask == timeout)
+            {
+                cancellationTokenSource.Cancel();
+                throw new OperationCanceledException("Time out!");
+            }
+
+            Stocks.ItemsSource = allStocks.Result.SelectMany(x => x);
+            }
+            catch
+            {
+
+            }
+            finally
+            {
+                AfterLoadingStockData();
+                cancellationTokenSource.Dispose();
+                cancellationTokenSource = null;
+            } */
+
+
+            /* var loadLinesTask = SearchForStocks(cancellationTokenSource.Token);
+
+              loadLinesTask.ContinueWith(t =>
+              {
+                  Dispatcher.Invoke(() =>
+                  {
+                      Notes.Text = t.Exception?.InnerException?.Message;
+                  });
+              }, TaskContinuationOptions.OnlyOnFaulted);
+
+              var processTask = loadLinesTask.ContinueWith((completedTask) =>
+              {
+                  var lines = completedTask.Result;
+
+                  var data = new List<Price>();
+
+                  foreach (var line in lines.Skip(1))
+                  {
+                      var price = Price.FromCSV(line);
+                      data.Add(price);
+                  }
+
+                  Dispatcher.Invoke(() =>
+                  {
+                      Stocks.ItemsSource = data.Where(p => p.Identifier == StockIdentifier.Text);
+
+                  });
+
+              }, TaskContinuationOptions.OnlyOnRanToCompletion);
+             
 
             processTask.ContinueWith((_) =>
             {
@@ -91,8 +230,7 @@ namespace stockAnalyzer.Windowss
 
             });
 
-
-
+             */
 
             // await GetStocks();
 
